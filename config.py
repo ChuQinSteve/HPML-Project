@@ -1,3 +1,6 @@
+import torch
+import os
+
 # Configs
 # Device settings
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -22,12 +25,3 @@ SPLIT_RATE = 0.2
 # Learning parameters
 LEARNING_RATE = 0.0001
 EPOCHS = 10
-
-# Output paths
-OUTPUT_PATH = 'output'
-TEST_IMGS_PATH = os.path.join(OUTPUT_PATH, 'test_imgs.pickle')
-TEST_MASKS_PATH = os.path.join(OUTPUT_PATH, 'test_masks.pickle')
-MODEL_PATH = os.path.join(OUTPUT_PATH, 'unet_model.pth')
-HISTORY_PATH = os.path.join(OUTPUT_PATH, 'unet_history.pickle')
-HISTORY_PLOT_PATH = os.path.join(OUTPUT_PATH, 'history.png')
-PRED_PLOT_PATH = os.path.join(OUTPUT_PATH, 'pred.png')

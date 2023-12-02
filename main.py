@@ -396,7 +396,7 @@ args = AttrDict()
 # You can play with the hyperparameters here, but to finish the assignment,
 # there is no need to tune the hyperparameters here.
 args_dict = {
-    "gpu": False,
+    "gpu": True,
     "checkpoint_name": "finetune-segmentation",
     "learn_rate": 0.05,
     "train_batch_size": 128,

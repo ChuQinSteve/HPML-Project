@@ -18,10 +18,10 @@ else
     echo "annotations.tar.gz already exists."
 fi
 
-!rm images/Egyptian_Mau*.jpg
-!rm annotations/trimaps/Egyptian_Mau*.png
-!rm images/Abyssinian_*.jpg
-!rm annotations/trimaps/Abyssinian_*.png
+rm -f images/Egyptian_Mau*.jpg
+rm -f annotations/trimaps/Egyptian_Mau*.png
+rm -f images/Abyssinian_*.jpg
+rm -f annotations/trimaps/Abyssinian_*.png
 
 #run main.py Python script
 echo "Running main.py..."
