@@ -8,7 +8,7 @@ Original file is located at
 """
 
 import time
-
+import os
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
@@ -230,20 +230,13 @@ def plot_prediction(args, model, is_train, index_list=[0], plotpath=None, title=
             plt.savefig(plotpath)
             plt.close()
 
-import os
 
-if not os.path.exists("images.tar.gz"):
-    print("Downloading The Oxford-IIIT Pet Dataset dataset")
-    !wget https://thor.robots.ox.ac.uk/~vgg/data/pets/images.tar.gz
-    !tar xvzf images.tar.gz
-if not os.path.exists("annotations.tar.gz"):
-    !wget https://thor.robots.ox.ac.uk/~vgg/data/pets/annotations.tar.gz
-    !tar xvzf annotations.tar.gz
+
 
 train_loader, valid_loader = initialize_loader()
 visualize_dataset(train_loader)
 
-|# For further details, please refer to: https://arxiv.org/pdf/1706.05587.pds
+# For further details, please refer to: https://arxiv.org/pdf/1706.05587.pds
 model = torch.hub.load('pytorch/vision:v0.10.0', 'deeplabv3_resnet101', pretrained=True)
 print(model)
 
