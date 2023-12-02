@@ -1,1 +1,3 @@
-# HPML-Project
+# HPML Project
+**Chu Qin**, **Ziyu Liu**
+

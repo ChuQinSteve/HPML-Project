@@ -43,12 +43,7 @@ def denormalize(img):
     return img * imagenet_stats[1] + imagenet_stats[0]
 
 
-########################## OLD ##########################
-# Mainly imported from https://colab.research.google.com/drive/1KzGRSNQpP4BonRKj3ZwGMTGdi-e2y8z-?authuser=1#scrollTo=U_g_Rq1cA1Xi
-
-
-
-########################## NEW ##########################
+# Partly imported from https://github.com/Kojec1/The-Oxford-IIIT-Pets-Segmentation/
 class SegmentationDataset(Dataset):
     """A custom dataset class"""
 
@@ -67,25 +62,6 @@ class SegmentationDataset(Dataset):
         image_path = self.images[index]
         mask_path = self.masks[index]
 
-        # # Open image and convert to RGB
-        # image = Image.open(image_path).convert('RGB')
-        # # Open mask and convert to grayscale
-        # mask = Image.open(mask_path).convert('L')
-
-        # # Apply transforms
-        # if self.transforms is not None:
-        #     image = self.transforms(image)
-        #     mask = self.transforms(mask)
-        #     # Converting float values to integers
-        #     mask = mask * 255
-        #     mask = mask.squeeze().to(torch.int64)
-        #     # Ground truth labels are 1, 2, 3. therefore subtract one to achieve 0, 1, 2:
-        #     mask -= 1
-
-        # # Return the image and corresponding mask
-        # return image, mask
-
-
         # Load the image
         image = read_image(image_path)
         image = cv2.resize(image, (224, 224))
@@ -93,17 +69,14 @@ class SegmentationDataset(Dataset):
         image = np.rollaxis(image, 2)
 
         mask = read_image(mask_path)
-        mask = cv2.resize(mask, (224, 224))  # H*W*c
+        mask = cv2.resize(mask, (224, 224))
         m = np.all(mask == [2, 2, 2], axis=-1)
 
-        # Apply the mask to set these pixels to [0, 0, 0]
+        # Apply the mask to set these pixels to black [0, 0, 0]
         mask[m] = [0, 0, 0]
 
-        # Apply inverse of the mask to set all other pixels to [128, 0, 0]
+        # Apply inverse of the mask to set all other pixels to red [128, 0, 0]
         mask[~m] = [128, 0, 0]
-
-        # print(image.shape)
-        # print(mask.shape)
 
         return image, mask
 
@@ -135,18 +108,6 @@ def initialize_loader():
     test_imgs = img_paths[:int(SPLIT_RATE * len(img_paths))]
     test_masks = mask_paths[:int(SPLIT_RATE * len(mask_paths))]
 
-    # Save test image and mask paths
-    # with open(TEST_IMGS_PATH, 'wb') as f:
-    #     pickle.dump(test_imgs, f)
-    # with open(TEST_MASKS_PATH, 'wb') as f:
-    #     pickle.dump(test_masks, f)
-
-    # Create a transformation composition
-    transform = transforms.Compose([
-        transforms.Resize(IMAGE_SIZE),
-        transforms.ToTensor()
-    ])
-
     # Load the train and test datasets
     train_set = SegmentationDataset(train_imgs, train_masks)
     test_set = SegmentationDataset(test_imgs, test_masks)
@@ -174,15 +135,7 @@ def visualize_dataset(dataloader):
     for i in range(4):
         inp = x[i].numpy().transpose((1, 2, 0))
         inp = denormalize(inp)
-        # inp = np.clip(inp, 0, 1)
-        # mask = y[i] / 255.0
         mask = y[i]
-        # Set pixels with value [2, 2, 2] to [0, 0, 0]
-
-        print(mask)
-        print(inp)
-        # plt.imshow(inp)
-        # plt.imshow(mask)
 
         ax = fig.add_subplot(2, 2, i + 1, xticks=[], yticks=[])
         plt.imshow(np.concatenate([inp, mask], axis=1))
@@ -232,25 +185,12 @@ def plot_prediction(args, model, is_train, index_list=[0], plotpath=None, title=
 
 import os
 
-if not os.path.exists("images.tar.gz"):
-    print("Downloading The Oxford-IIIT Pet Dataset dataset")
-    !wget https://thor.robots.ox.ac.uk/~vgg/data/pets/images.tar.gz
-    !tar xvzf images.tar.gz
-if not os.path.exists("annotations.tar.gz"):
-    !wget https://thor.robots.ox.ac.uk/~vgg/data/pets/annotations.tar.gz
-    !tar xvzf annotations.tar.gz
-
 train_loader, valid_loader = initialize_loader()
 visualize_dataset(train_loader)
 
-|# For further details, please refer to: https://arxiv.org/pdf/1706.05587.pds
+# For further details, please refer to: https://arxiv.org/pdf/1706.05587.pds
 model = torch.hub.load('pytorch/vision:v0.10.0', 'deeplabv3_resnet101', pretrained=True)
-print(model)
 
-# for param in model.named_parameters():
-#   print(param)
-
-print(model.classifier)
 
 def compute_loss(pred, gt):
     loss = F.cross_entropy(pred, gt)
@@ -335,12 +275,6 @@ def train(args, model):
 
     learned_parameters = []
     # We only learn the last layer and freeze all the other weights
-    ################ Code goes here ######################
-    # Around 3 lines of code
-    # Hint:
-    # - use a for loop to loop over all model.named_parameters()
-    # - append the parameters (both weights and biases) of the last layer (prefix: classifier.4) to the learned_parameters list
-    ######################################################
     for param in model.named_parameters():
         if (param[0].startswith("classifier.4")):
             learned_parameters.append(param[1])
@@ -349,11 +283,6 @@ def train(args, model):
     optimizer = torch.optim.Adam(learned_parameters, lr=args.learn_rate)
 
     train_loader, valid_loader = initialize_loader()
-    # print(
-    #     "Train set: {}, Test set: {}".format(
-    #         train_loader.dataset.num_files, valid_loader.dataset.num_files
-    #     )
-    # )
 
     print("Beginning training ...")
     if args.gpu:
@@ -408,7 +337,7 @@ def train(args, model):
         time_elapsed = time.time() - start_tr
         print(
             "Epoch [%d/%d], Loss: %.4f, Time (s): %d"
-#             % (epoch + 1, args.epochs, trn_loss, time_elapsed)
+                % (epoch + 1, args.epochs, trn_loss, time_elapsed)
         )
 
         # Evaluate the model
@@ -426,7 +355,7 @@ def train(args, model):
         time_elapsed = time.time() - start_val
         print(
             "Epoch [%d/%d], Loss: %.4f, mIOU: %.4f, Validation time (s): %d"
-#             % (epoch + 1, args.epochs, val_loss, val_iou, time_elapsed)
+                % (epoch + 1, args.epochs, val_loss, val_iou, time_elapsed)
         )
 
         val_losses.append(val_loss)
@@ -466,7 +395,7 @@ args = AttrDict()
 # You can play with the hyperparameters here, but to finish the assignment,
 # there is no need to tune the hyperparameters here.
 args_dict = {
-    "gpu": True,
+    "gpu": False,
     "checkpoint_name": "finetune-segmentation",
     "learn_rate": 0.05,
     "train_batch_size": 128,
@@ -480,15 +409,7 @@ args_dict = {
 args.update(args_dict)
 
 # Truncate the last layer and replace it with the new one.
-# To avoid `CUDA out of memory` error, you might find it useful (sometimes required)
-#   to set the `requires_grad`=False for some layers
-################ YOUR CODE GOES HERE ######################
-# Around 4 lines of code
-# Hint:
-# - replace the classifier.4 layer with the new Conv2d layer (1 line)
-# - no need to consider the aux_classifier module (just treat it as don't care)
-# - freeze the gradient of other layers (3 lines)
-######################################################
+# To avoid 'CUDA out of memory' error, we set requires_grad=False for prevous layers
 model.classifier[4] = nn.Conv2d(256, 2, 1)
 for param in model.named_parameters():
     if not param[0].startswith('classifier.4'):
@@ -497,9 +418,6 @@ for param in model.named_parameters():
 # Clear the cache in GPU
 torch.cuda.empty_cache()
 train(args, model)
-
-!rm images/Abyssinian_*.jpg
-!rm annotations/trimaps/Abyssinian_*.png
 
 plot_prediction(args, model, is_train=True, index_list=[0, 1, 2, 3])
 
