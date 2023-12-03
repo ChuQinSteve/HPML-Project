@@ -15,12 +15,14 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import argparse
 from random import shuffle
 from PIL import Image
 from scipy.io import loadmat
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
-from config import *
+from config import default_args
+import cProfile
 
 
 # Dataset helper function
@@ -81,18 +83,18 @@ class SegmentationDataset(Dataset):
         return image, mask
 
 
-def initialize_loader():
+def initialize_loader(args=default_args):
     # Create a list of image paths
     img_paths = sorted([
-        os.path.join(IMAGE_PATH, name)
-        for name in os.listdir(IMAGE_PATH)
+        os.path.join(default_args.image_path, name)
+        for name in os.listdir(default_args.image_path)
         if name.endswith('.jpg')
     ])
 
     # Create a list of mask paths
     mask_paths = sorted([
-        os.path.join(MASK_PATH, name)
-        for name in os.listdir(MASK_PATH)
+        os.path.join(default_args.mask_path, name)
+        for name in os.listdir(default_args.mask_path)
         if not name.startswith('.') and name.endswith('.png')
     ])
 
@@ -103,10 +105,10 @@ def initialize_loader():
     img_paths, mask_paths = list(img_paths), list(mask_paths)
 
     # Split the data into train and test sets
-    train_imgs = img_paths[int(SPLIT_RATE * len(img_paths)):]
-    train_masks = mask_paths[int(SPLIT_RATE * len(mask_paths)):]
-    test_imgs = img_paths[:int(SPLIT_RATE * len(img_paths))]
-    test_masks = mask_paths[:int(SPLIT_RATE * len(mask_paths))]
+    train_imgs = img_paths[int(args.split_rate * len(img_paths)):]
+    train_masks = mask_paths[int(args.split_rate * len(mask_paths)):]
+    test_imgs = img_paths[:int(args.split_rate * len(img_paths))]
+    test_masks = mask_paths[:int(args.split_rate * len(mask_paths))]
 
     # Load the train and test datasets
     train_set = SegmentationDataset(train_imgs, train_masks)
@@ -114,8 +116,8 @@ def initialize_loader():
     print('Train images: {}\n Test images: {}'.format(len(train_set), len(test_set)))
 
     # Initiate the train and test loaders
-    train_loader = DataLoader(train_set, batch_size=BATCH_SIZE, **KWARGS)
-    test_loader = DataLoader(test_set, batch_size=BATCH_SIZE, **KWARGS)
+    train_loader = DataLoader(train_set, batch_size=args.batch_size, pin_memory = args.pin_memory, num_workers = args.num_workers)
+    test_loader = DataLoader(test_set, batch_size=args.batch_size, pin_memory = args.pin_memory, num_workers = args.num_workers)
 
     return train_loader, test_loader
 
@@ -143,7 +145,7 @@ def visualize_dataset(dataloader):
 
 def plot_prediction(args, model, is_train, index_list=[0], plotpath=None, title=None):
 
-    train_loader, valid_loader = initialize_loader()
+    train_loader, valid_loader = initialize_loader(args)
     loader = train_loader if is_train else valid_loader
 
     images, masks = next(iter(loader))
@@ -183,14 +185,10 @@ def plot_prediction(args, model, is_train, index_list=[0], plotpath=None, title=
             plt.savefig(plotpath)
             plt.close()
 
-
-
-
-train_loader, valid_loader = initialize_loader()
-visualize_dataset(train_loader)
-
-# For further details, please refer to: https://arxiv.org/pdf/1706.05587.pds
-model = torch.hub.load('pytorch/vision:v0.10.0', 'deeplabv3_resnet101', pretrained=True)
+def show_visualization():
+    print("Showing visualization of dataset...")
+    train_loader, valid_loader = initialize_loader()
+    visualize_dataset(train_loader)
 
 
 def compute_loss(pred, gt):
@@ -283,7 +281,7 @@ def train(args, model):
     # Adam only updates learned_parameters
     optimizer = torch.optim.Adam(learned_parameters, lr=args.learn_rate)
 
-    train_loader, valid_loader = initialize_loader()
+    train_loader, valid_loader = initialize_loader(args)
 
     print("Beginning training ...")
     if args.gpu:
@@ -387,40 +385,51 @@ def train(args, model):
 
     print("Best model achieves mIOU: %.4f" % best_iou)
 
-class AttrDict(dict):
-    def __init__(self, *args, **kwargs):
-        super(AttrDict, self).__init__(*args, **kwargs)
-        self.__dict__ = self
 
-args = AttrDict()
-# You can play with the hyperparameters here, but to finish the assignment,
-# there is no need to tune the hyperparameters here.
-args_dict = {
-    "gpu": True,
-    "checkpoint_name": "finetune-segmentation",
-    "learn_rate": 0.05,
-    "train_batch_size": 128,
-    "val_batch_size": 256,
-    "epochs": 10,
-    "loss": 'cross-entropy',
-    "seed": 0,
-    "plot": False,
-    "experiment_name": "finetune-segmentation",
-}
-args.update(args_dict)
+def main(args):
+    # For further details, please refer to: https://arxiv.org/pdf/1706.05587.pds
+    # Pretrained deeplabv3 model
+    model = torch.hub.load('pytorch/vision:v0.10.0', 'deeplabv3_resnet101', pretrained=True)
 
-# Truncate the last layer and replace it with the new one.
-# To avoid 'CUDA out of memory' error, we set requires_grad=False for prevous layers
-model.classifier[4] = nn.Conv2d(256, 2, 1)
-for param in model.named_parameters():
-    if not param[0].startswith('classifier.4'):
-        param[1].requires_grad = False
+    # Truncate the last layer and replace it with the new one.
+    # To avoid 'CUDA out of memory' error, we set requires_grad=False for prevous layers
+    model.classifier[4] = nn.Conv2d(256, 2, 1)
+    for param in model.named_parameters():
+        if not param[0].startswith('classifier.4'):
+            param[1].requires_grad = False
 
-# Clear the cache in GPU
-torch.cuda.empty_cache()
-train(args, model)
+    # Clear the cache in GPU
+    torch.cuda.empty_cache()
+    train(args, model)
 
-plot_prediction(args, model, is_train=True, index_list=[0, 1, 2, 3])
+def show_result(args, model):
+    plot_prediction(args, model, is_train=True, index_list=[0, 1, 2, 3])
+    plot_prediction(args, model, is_train=False, index_list=[0, 1, 2, 3])
 
-plot_prediction(args, model, is_train=False, index_list=[0, 1, 2, 3])
+def parse_arguments():
+    parser = argparse.ArgumentParser('deeplabv3-resnet101')
+    parser.set_defaults(**default_args)
+    parser.add_argument('--batch_size', type=int)
+    parser.add_argument('--num_workers', type=int)
+    parser.add_argument('--pin_memory', action='store_true')
+    parser.add_argument('--torch_script', action='store_true')
+    parser.add_argument('--distributed', action='store_true')
+    parser.add_argument('--n-epochs', type=int, default=default_args.epochs)
+    # parser.add_argument('--profile', choices=['cprofile', 'torch'], default='cprofile')
+    # parser.add_argument('--dry-run', action='store_true')
+    # parser.add_argument('--cudnn-autotuner', action='store_true',
+    #                     help='Apply cuDNN autotuner.')
+    return parser.parse_args()
+
+if __name__ == '__main__':
+    # parser
+    os.makedirs("./profile", exist_ok=True)
+    args = parse_arguments()
+
+    # profiler
+    prof = cProfile.Profile()
+    prof.enable()
+    main(args)
+    prof.disable()
+    prof.dump_stats(f"./profile/train.profile")
 

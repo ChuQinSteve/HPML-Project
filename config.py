@@ -1,27 +1,25 @@
 import torch
 import os
 
-# Configs
-# Device settings
-DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
-KWARGS = {'pin_memory': True, 'num_workers': 4} if DEVICE == 'cude' else {}
+class AttrDict(dict):
+    def __init__(self, *args, **kwargs):
+        super(AttrDict, self).__init__(*args, **kwargs)
+        self.__dict__ = self
 
-# Data paths
-IMAGE_PATH = 'images'
-MASK_PATH = 'annotations/trimaps'
-
-# Data attributes
-IMAGE_SIZE = (256, 256)
-N_CLASSES = 3
-BATCH_SIZE = 64
-
-# Model parameters
-ENC_CHANNELS = (3, 64, 128, 256, 512)
-DEC_CHANNELS = (512, 256, 128, 64)
-
-# Train / test split rate
-SPLIT_RATE = 0.2
-
-# Learning parameters
-LEARNING_RATE = 0.0001
-EPOCHS = 10
+default_args = AttrDict()
+args_dict = {
+    "gpu": 'cuda' if torch.cuda.is_available() else 'cpu',
+    "checkpoint_name": "finetune-segmentation",
+    "learn_rate": 0.05,
+    "batch_size": 64,
+    "epochs": 10,
+    "num_workers": 1,
+    "loss": 'cross-entropy',
+    "seed": 0,
+    "plot": False,
+    "experiment_name": "finetune-segmentation",
+    "image_path": 'images',
+    "mask_path": 'annotations/trimaps',
+    "split_rate": 0.2,
+}
+default_args.update(args_dict)
