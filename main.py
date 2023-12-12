@@ -188,6 +188,7 @@ def plot_prediction(args, model, is_train, index_list=[0], plotpath=None, title=
 def show_visualization():
     print("Showing visualization of dataset...")
     train_loader, valid_loader = initialize_loader()
+
     visualize_dataset(train_loader)
 
 
@@ -385,6 +386,22 @@ def train(args, model):
 
     print("Best model achieves mIOU: %.4f" % best_iou)
 
+def test_dataloader(args):
+    print("Test dataloader........")
+    
+    train_loader,valid_loader = initialize_loader(args)
+    #warm up
+    for _ in enumerate(train_loader):
+        pass
+    for i in range(11):
+        args.num_workers = i
+        train_loader,valid_loader = initialize_loader(args)
+        before_loading = time.perf_counter() # Before data loading time
+        for _ in enumerate(train_loader):
+            pass
+        after_loading = time.perf_counter()  # After data loading time
+        print("Time for {} loaders: ".format(i),after_loading - before_loading,"seconds")
+
 
 def main(args):
     # For further details, please refer to: https://arxiv.org/pdf/1706.05587.pds
@@ -414,7 +431,8 @@ def parse_arguments():
     parser.add_argument('--pin_memory', action='store_true')
     parser.add_argument('--torch_script', action='store_true')
     parser.add_argument('--distributed', action='store_true')
-    parser.add_argument('--n-epochs', type=int, default=default_args.epochs)
+    parser.add_argument('--epochs', type=int, default=default_args.epochs)
+    parser.add_argument('--test_dataloader',action='store_true')
     # parser.add_argument('--profile', choices=['cprofile', 'torch'], default='cprofile')
     # parser.add_argument('--dry-run', action='store_true')
     # parser.add_argument('--cudnn-autotuner', action='store_true',
@@ -425,11 +443,13 @@ if __name__ == '__main__':
     # parser
     os.makedirs("./profile", exist_ok=True)
     args = parse_arguments()
-
-    # profiler
-    prof = cProfile.Profile()
-    prof.enable()
-    main(args)
-    prof.disable()
-    prof.dump_stats(f"./profile/train.profile")
+    if args.test_dataloader == True:
+        test_dataloader(args)
+    else:
+        # profiler
+        prof = cProfile.Profile()
+        prof.enable()
+        main(args)
+        prof.disable()
+        prof.dump_stats(f"./profile/train.profile")
 
