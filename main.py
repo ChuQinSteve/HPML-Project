@@ -403,22 +403,6 @@ def test_dataloader(args):
         print("Time for {} loaders: ".format(i),after_loading - before_loading,"seconds")
 
 
-def main(args):
-    # For further details, please refer to: https://arxiv.org/pdf/1706.05587.pds
-    # Pretrained deeplabv3 model
-    model = torch.hub.load('pytorch/vision:v0.10.0', 'deeplabv3_resnet101', pretrained=True)
-
-    # Truncate the last layer and replace it with the new one.
-    # To avoid 'CUDA out of memory' error, we set requires_grad=False for prevous layers
-    model.classifier[4] = nn.Conv2d(256, 2, 1)
-    for param in model.named_parameters():
-        if not param[0].startswith('classifier.4'):
-            param[1].requires_grad = False
-
-    # Clear the cache in GPU
-    torch.cuda.empty_cache()
-    train(args, model)
-
 def show_result(args, model):
     plot_prediction(args, model, is_train=True, index_list=[0, 1, 2, 3])
     plot_prediction(args, model, is_train=False, index_list=[0, 1, 2, 3])
@@ -443,13 +427,34 @@ if __name__ == '__main__':
     # parser
     os.makedirs("./profile", exist_ok=True)
     args = parse_arguments()
+    
     if args.test_dataloader == True:
         test_dataloader(args)
     else:
+        # For further details, please refer to: https://arxiv.org/pdf/1706.05587.pds
+        # Pretrained deeplabv3 model
+        model = torch.hub.load('pytorch/vision:v0.10.0', 'deeplabv3_resnet101', pretrained=True)
+
+        # Truncate the last layer and replace it with the new one.
+        # To avoid 'CUDA out of memory' error, we set requires_grad=False for prevous layers
+        model.classifier[4] = nn.Conv2d(256, 2, 1)
+        for param in model.named_parameters():
+            if not param[0].startswith('classifier.4'):
+                param[1].requires_grad = False
+
+        # Clear the cache in GPU
+        torch.cuda.empty_cache()
+
+        if (args.torch_script):
+            device = args.gpu
+            model = model.to(device)
+            print(torch.rand(64, 3, 224, 224).shape)
+            model = torch.jit.script(model, torch.rand(64, 3, 224, 224).to(device))
+
         # profiler
         prof = cProfile.Profile()
         prof.enable()
-        main(args)
+        train(args, model)
         prof.disable()
         prof.dump_stats(f"./profile/train.profile")
 
