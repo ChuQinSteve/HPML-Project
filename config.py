@@ -7,8 +7,15 @@ class AttrDict(dict):
         self.__dict__ = self
 
 default_args = AttrDict()
+device = "cpu"
+if (torch.cuda.is_available):
+    if (torch.cuda.device_count() > 1):
+        device = "cuda:0"
+    else:
+        device = "cuda"
+
 args_dict = {
-    "gpu": 'cuda' if torch.cuda.is_available() else 'cpu',
+    "gpu": device,
     "checkpoint_name": "finetune-segmentation",
     "learn_rate": 0.05,
     "batch_size": 64,

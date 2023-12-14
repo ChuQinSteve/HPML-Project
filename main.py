@@ -19,9 +19,13 @@ import argparse
 from random import shuffle
 from PIL import Image
 from scipy.io import loadmat
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, DistributedSampler
+import torch.distributed as dist
+import torch.multiprocessing as mp
+from torch.nn.parallel import DistributedDataParallel as DDP
 from torchvision import transforms
 from config import default_args
+import pickle
 import cProfile
 
 
@@ -53,7 +57,6 @@ class SegmentationDataset(Dataset):
         # Get paths to images and masks
         self.images = images
         self.masks = masks
-        self.transforms = transforms
 
     def __len__(self):
         # Return the number of images
@@ -115,9 +118,18 @@ def initialize_loader(args=default_args):
     test_set = SegmentationDataset(test_imgs, test_masks)
     print('Train images: {}\n Test images: {}'.format(len(train_set), len(test_set)))
 
-    # Initiate the train and test loaders
-    train_loader = DataLoader(train_set, batch_size=args.batch_size, pin_memory = args.pin_memory, num_workers = args.num_workers)
-    test_loader = DataLoader(test_set, batch_size=args.batch_size, pin_memory = args.pin_memory, num_workers = args.num_workers)
+    if (args.distributed_data_parallel):
+        # Create a distributed sampler and dataloader
+        train_sampler = DistributedSampler(train_set, num_replicas=args.world_size, rank=args.rank)
+        test_sampler = DistributedSampler(test_set, num_replicas=args.world_size, rank=args.rank)
+        
+        # Initiate the train and test loaders
+        train_loader = DataLoader(train_set, batch_size=args.batch_size, pin_memory = args.pin_memory, num_workers = args.num_workers, sampler=train_sampler)
+        test_loader = DataLoader(test_set, batch_size=args.batch_size, pin_memory = args.pin_memory, num_workers = args.num_workers, sampler=test_sampler)
+    else:
+        # Initiate the train and test loaders
+        train_loader = DataLoader(train_set, batch_size=args.batch_size, pin_memory = args.pin_memory, num_workers = args.num_workers)
+        test_loader = DataLoader(test_set, batch_size=args.batch_size, pin_memory = args.pin_memory, num_workers = args.num_workers)
 
     return train_loader, test_loader
 
@@ -151,6 +163,8 @@ def plot_prediction(args, model, is_train, index_list=[0], plotpath=None, title=
     images, masks = next(iter(loader))
     images = images.float()
     if args.gpu:
+        images = images.to(args.rank)
+    else:
         images = images.cuda()
 
     with torch.no_grad():
@@ -236,7 +250,10 @@ def run_validation_step(args, epoch, model, loader, plotpath=None):
         for i, (images, masks) in enumerate(loader):
             permute_masks = masks.permute(0, 3, 1, 2)  # to match the input size: B, C, H, W
             binary_masks = convert_to_binary(permute_masks)
-            if args.gpu:
+            if args.distributed_data_parallel:
+                images = images.to(args.rank)
+                binary_masks = binary_masks.to(args.rank)
+            else:
                 images = images.cuda()
                 binary_masks = binary_masks.cuda()
             output = model(images.float())
@@ -259,8 +276,66 @@ def run_validation_step(args, epoch, model, loader, plotpath=None):
 
     return val_loss, val_iou
 
-# Commented out IPython magic to ensure Python compatibility.
-def train(args, model):
+def main(rank, world_size, args):
+
+    # Test data loader
+    if args.test_dataloader == True:
+        test_dataloader(args)
+        return
+    
+    # For further details, please refer to: https://arxiv.org/pdf/1706.05587.pds
+    # Pretrained deeplabv3 model
+    model = torch.hub.load('pytorch/vision:v0.10.0', 'deeplabv3_resnet101', pretrained=True)
+
+    # Truncate the last layer and replace it with the new one.
+    # To avoid 'CUDA out of memory' error, we set requires_grad=False for prevous layers
+    model.classifier[4] = nn.Conv2d(256, 2, 1)
+    for param in model.named_parameters():
+        if not param[0].startswith('classifier.4'):
+            param[1].requires_grad = False
+
+    learned_parameters = []
+    # We only learn the last layer and freeze all the other weights
+    for param in model.named_parameters():
+        if (param[0].startswith("classifier.4")):
+            learned_parameters.append(param[1])
+
+    # Clear the cache in GPU
+    torch.cuda.empty_cache()
+    device = args.gpu
+    model = model.to(device)
+
+    if (args.torch_script):
+        model = torch.jit.script(model, torch.rand(64, 3, 224, 224).to(device))
+
+    if (args.data_parallel):
+        model = nn.DataParallel(model)
+    
+    if (args.distributed_data_parallel):
+        world_size = 2
+        train_DDP(rank, world_size, args, model, learned_parameters)
+    else:
+        train(args, model, learned_parameters)
+
+def train_DDP(rank, world_size, args, model, learned_parameters):
+    os.environ['MASTER_ADDR'] = 'localhost'
+    os.environ['MASTER_PORT'] = '12355'
+
+    dist.init_process_group("nccl", rank=rank, world_size=world_size)
+
+    # Create model and move it to GPU with id 'rank'
+    model = model.to(rank)
+    ddp_model = DDP(model, device_ids=[rank])
+
+    print(type(args))
+    args.rank = rank
+    args.world_size = world_size
+    train(args, ddp_model, learned_parameters)
+
+    dist.destroy_process_group()
+
+
+def train(args, model, learned_parameters):
 
     # Set the maximum number of threads to prevent crash in Teaching Labs
     torch.set_num_threads(5)
@@ -273,20 +348,12 @@ def train(args, model):
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
 
-    learned_parameters = []
-    # We only learn the last layer and freeze all the other weights
-    for param in model.named_parameters():
-        if (param[0].startswith("classifier.4")):
-            learned_parameters.append(param[1])
-
     # Adam only updates learned_parameters
     optimizer = torch.optim.Adam(learned_parameters, lr=args.learn_rate)
 
     train_loader, valid_loader = initialize_loader(args)
 
     print("Beginning training ...")
-    if args.gpu:
-        model.cuda()
 
     start = time.time()
     trn_losses = []
@@ -304,7 +371,10 @@ def train(args, model):
         for i, (images, masks) in enumerate(train_loader):
             permute_masks = masks.permute(0, 3, 1, 2)  # to match the input size: B, C, H, W
             binary_masks = convert_to_binary(permute_masks)  # B, H, W
-            if args.gpu:
+            if args.distributed_data_parallel:
+                images = images.to(args.rank)
+                binary_masks = binary_masks.to(args.rank)
+            else:
                 images = images.cuda()
                 binary_masks = binary_masks.cuda()
 
@@ -414,7 +484,8 @@ def parse_arguments():
     parser.add_argument('--num_workers', type=int)
     parser.add_argument('--pin_memory', action='store_true')
     parser.add_argument('--torch_script', action='store_true')
-    parser.add_argument('--distributed', action='store_true')
+    parser.add_argument('--data_parallel', action='store_true')
+    parser.add_argument('--distributed_data_parallel', action='store_true')
     parser.add_argument('--epochs', type=int, default=default_args.epochs)
     parser.add_argument('--test_dataloader',action='store_true')
     # parser.add_argument('--profile', choices=['cprofile', 'torch'], default='cprofile')
@@ -424,37 +495,21 @@ def parse_arguments():
     return parser.parse_args()
 
 if __name__ == '__main__':
+    mp.set_start_method('spawn')
     # parser
     os.makedirs("./profile", exist_ok=True)
     args = parse_arguments()
     
     if args.test_dataloader == True:
         test_dataloader(args)
+
+    prof = cProfile.Profile()
+    prof.enable()
+    if (args.distributed_data_parallel):
+        world_size = 2
+        mp.spawn(main, args=(world_size, args), nprocs=world_size, join=True)
     else:
-        # For further details, please refer to: https://arxiv.org/pdf/1706.05587.pds
-        # Pretrained deeplabv3 model
-        model = torch.hub.load('pytorch/vision:v0.10.0', 'deeplabv3_resnet101', pretrained=True)
-
-        # Truncate the last layer and replace it with the new one.
-        # To avoid 'CUDA out of memory' error, we set requires_grad=False for prevous layers
-        model.classifier[4] = nn.Conv2d(256, 2, 1)
-        for param in model.named_parameters():
-            if not param[0].startswith('classifier.4'):
-                param[1].requires_grad = False
-
-        # Clear the cache in GPU
-        torch.cuda.empty_cache()
-
-        if (args.torch_script):
-            device = args.gpu
-            model = model.to(device)
-            print(torch.rand(64, 3, 224, 224).shape)
-            model = torch.jit.script(model, torch.rand(64, 3, 224, 224).to(device))
-
-        # profiler
-        prof = cProfile.Profile()
-        prof.enable()
-        train(args, model)
-        prof.disable()
-        prof.dump_stats(f"./profile/train.profile")
+        main(0, 0, args)
+    prof.disable()
+    prof.dump_stats(f"./profile/train.profile")
 
