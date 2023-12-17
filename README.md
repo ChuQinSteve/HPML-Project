@@ -40,21 +40,21 @@ We digged through in total of four optimization techniques including:
 ## Results
 
 - Model Inference:
-    ![](result1.png)
-    ![](result2.png)
-    ![](result3.png)
-    ![](result4.png)
+    ![](results/result1.png)
+    ![](results/result2.png)
+    ![](results/result3.png)
+    ![](results/result4.png)
 
 - Model Performance:
     - Benchmark -- original
-        ![](result6.png)
+        ![](results/result6.png)
     - With Num-workers (optimized = 8)
-        ![](result7.png)
+        ![](results/result7.png)
     - With Num-workers and Pinned-memory
-        ![](result8.png)
+        ![](results/result8.png)
     - With Num-workers, Pinned-memory and Torch Script
-        ![](result9.png)
+        ![](results/result9.png)
     - With Num-workers, Pinned-memory, Torch Script and Data Parallel
-        ![](result10.png)
+        ![](results/result10.png)
     - With Num-workers, Pinned-memory, Torch Script and Distributed Data Parallel
-        ![](result13.png)
+        ![](results/result13.png)
