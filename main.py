@@ -162,7 +162,7 @@ def plot_prediction(args, model, is_train, index_list=[0], plotpath=None, title=
 
     images, masks = next(iter(loader))
     images = images.float()
-    if args.gpu:
+    if args.distributed_data_parallel:
         images = images.to(args.rank)
     else:
         images = images.cuda()
@@ -480,6 +480,7 @@ def show_result(args, model):
 def parse_arguments():
     parser = argparse.ArgumentParser('deeplabv3-resnet101')
     parser.set_defaults(**default_args)
+    parser.add_argument('--learn_rate', type=float)
     parser.add_argument('--batch_size', type=int)
     parser.add_argument('--num_workers', type=int)
     parser.add_argument('--pin_memory', action='store_true')
